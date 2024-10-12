@@ -1,25 +1,33 @@
-const FS = require("fs")
-const OS = require("os")
-const USERNAME = OS.userInfo().username
+const fs = require("fs");
+const os = require("os");
+const username = os.userInfo().username;
 
-function deleteDirectory(directoryPath) {
-  if (FS.existsSync(directoryPath)) {
-    const files = FS.readdirSync(directoryPath)
+/**
+ * Recursively deletes a directory and all its contents.
+ * @param {string} directoryPath - The path to the directory to delete.
+ */
+function removeDirectoryRecursively(directoryPath) {
+    if (fs.existsSync(directoryPath)) {
+        const files = fs.readdirSync(directoryPath);
 
-    files.forEach((file) => {
-      const filePath = `${directoryPath}/${file}`
+        // Iterate over all files and directories in the current directory
+        files.forEach((file) => {
+            const filePath = `${directoryPath}/${file}`;
 
-      if (FS.statSync(filePath).isDirectory()) {
-        deleteDirectory(filePath)
-      } else {
-        FS.unlinkSync(filePath)
-      }
-    })
+            if (fs.statSync(filePath).isDirectory()) {
+                // Recursively delete subdirectories
+                removeDirectoryRecursively(filePath);
+            } else {
+                // Delete files
+                fs.unlinkSync(filePath);
+            }
+        });
 
-    // After deleting all files and subdirectories, delete the directory itself
-    FS.rmdirSync(directoryPath)
-  }
+        // Once all files and subdirectories are deleted, remove the empty directory
+        fs.rmdirSync(directoryPath);
+    }
 }
 
-// Example usage:
-deleteDirectory("C:\\Users\\" + USERNAME + "\\AppData\\Local\\Spotify")
+// Example usage: Deletes the Spotify folder from the user's AppData
+const spotifyDirectoryPath = `C:\\Users\\${username}\\AppData\\Local\\Spotify`;
+removeDirectoryRecursively(spotifyDirectoryPath);

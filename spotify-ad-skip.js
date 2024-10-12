@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Spotify ad skipper
-// @version      1.0
+// @name         Spotify Ad Skipper
+// @version      1.1
 // @namespace    http://tampermonkey.net/
-// @description  Detects and skips ads on spotify
+// @description  Automatically detects and skips ads on Spotify's web player.
 // @match        https://*.spotify.com/*
 // @grant        none
 // @run-at       document-start
@@ -10,80 +10,90 @@
 // @updateURL    https://gist.githubusercontent.com/Simonwep/24f8cdcd6d32d86e929004013bd660ae/raw
 // ==/UserScript==
 
-!async function () {
+(async function() {
 
-    async function queryAsync(query) {
+    /**
+     * Queries the DOM for an element and resolves it once available.
+     * @param {string} selector - CSS selector to query for.
+     * @returns {Promise<Element>} - The found DOM element.
+     */
+    async function queryElement(selector) {
         return new Promise(resolve => {
             const interval = setInterval(() => {
-                const element = document.querySelector(query);
+                const element = document.querySelector(selector);
                 if (element) {
                     clearInterval(interval);
-                    return resolve(element);
+                    resolve(element);
                 }
             }, 250);
         });
     }
 
     /**
-     * Inject a middleware function in a object or instance
-     * @param ctx Object or instance
-     * @param fn Function name
-     * @param middleware Middleware function
-     * @param transform Transform function result
+     * Inject a middleware function into an object's method.
+     * @param {Object} options.ctx - The object containing the method to modify.
+     * @param {string} options.fn - The method name to inject middleware into.
+     * @param {Function} [options.middleware] - Optional middleware to execute before the original function.
+     * @param {Function} [options.transform] - Optional transform to modify the method's result.
      */
-    function inject({ctx, fn, middleware, transform}) {
+    function inject({ ctx, fn, middleware, transform }) {
         const original = ctx[fn];
-        ctx[fn] = function () {
-            if (!middleware || middleware.call(this, ...arguments) !== false) {
-                const result = original.call(this, ...arguments);
-                return transform ? transform.call(this, result, ...arguments) : result;
+        ctx[fn] = function (...args) {
+            if (!middleware || middleware.apply(this, args) !== false) {
+                const result = original.apply(this, args);
+                return transform ? transform.apply(this, [result, ...args]) : result;
             }
         };
     }
 
-    const nowPlayingBar = await queryAsync('.now-playing-bar');
-    const playButton = await queryAsync('button[title=Play], button[title=Pause]');
+    // Find the now playing bar and play/pause button in Spotify's DOM
+    const nowPlayingBar = await queryElement('.now-playing-bar');
+    const playPauseButton = await queryElement('button[title=Play], button[title=Pause]');
 
-    let audio;
+    let audioElement;
 
+    // Hook into document.createElement to capture the audio element.
     inject({
         ctx: document,
         fn: 'createElement',
         transform(result, type) {
-
             if (type === 'audio') {
-                audio = result;
+                audioElement = result;
             }
-
             return result;
         }
     });
 
-    let playInterval;
+    let skipAdInterval;
+
+    // Observe changes in the now-playing bar to detect ads and handle them.
     new MutationObserver(() => {
-        const link = document.querySelector('.now-playing > a');
+        const trackLink = document.querySelector('.now-playing > a');
 
-        if (link) {
-
-            if (!audio) {
-                return console.error('Audio-element not found!');
+        if (trackLink) {
+            if (!audioElement) {
+                console.error('Audio element not found!');
+                return;
             }
 
-            if (!playButton) {
-                return console.error('Play-button not found!');
+            if (!playPauseButton) {
+                console.error('Play/Pause button not found!');
+                return;
             }
 
-            // console.log('Ad found', audio, playButton, nowPlayingBar);
+            // Mute the audio (by clearing src) and simulate clicking the play/pause button to skip ads.
+            audioElement.src = '';
+            playPauseButton.click();
 
-            audio.src = '';
-            playButton.click();
-            if (!playInterval) {
-                playInterval = setInterval(() => {
-                    if (!document.querySelector('.now-playing > a') && playButton.title === 'Pause') {
-                        clearInterval(playInterval);
-                        playInterval = null;
+            // Ensure that we keep trying to skip until the ad is fully gone.
+            if (!skipAdInterval) {
+                skipAdInterval = setInterval(() => {
+                    const isAdOver = !document.querySelector('.now-playing > a') && playPauseButton.title === 'Pause';
+                    if (isAdOver) {
+                        clearInterval(skipAdInterval);
+                        skipAdInterval = null;
                     } else {
-                        playButton.click();
+                        playPauseButton.click();
                     }
                 }, 500);
             }
@@ -95,14 +105,14 @@
         subtree: true
     });
 
-    // Hide upgrade-button and captcha-errors, we don't what to see that.
-    const style = document.createElement('style');
-    style.innerHTML = `
+    // Hide upgrade buttons and any premium subscription prompts from the UI.
+    const styleElement = document.createElement('style');
+    styleElement.innerHTML = `
         [aria-label="Upgrade to Premium"],
         body > div:not(#main) {
             display: none !important;
         }
     `;
+    document.body.appendChild(styleElement);
 
-    document.body.appendChild(style);
-}();
+})();
